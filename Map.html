@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bumbum's Trip Map!</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        .custom-div-icon { background: none; border: none; }
+        .marker-container { position: relative; width: 50px; height: 50px; }
+        .marker-pin { width: 50px; height: 50px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); overflow: hidden; background-color: #6366f1; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+        .marker-pin:hover { transform: scale(1.1); }
+        .marker-pin img { width: 100%; height: 100%; object-fit: cover; }
+        .marker-number { position: absolute; top: -8px; right: -8px; background: #ef4444; color: white; font-size: 12px; font-weight: bold; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 10; }
+        .marker-suggested { border-style: dashed; }
+        .custom-popup .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; }
+        .custom-popup .leaflet-popup-content { margin: 0; width: 220px !important; }
+        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; }
+        .sidebar-tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; }
+        .day-tab-active { background-color: #6366f1; color: white; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        #search-results { position: absolute; top: 100%; left: 0; right: 0; background: white; border-radius: 12px; margin-top: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 1000; border: 1px solid #f1f5f9; }
+        #loading-screen { position: fixed; inset: 0; background: white; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.5s; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="loading-screen">
+        <div class="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+        <p class="text-indigo-600 font-bold">Initializing Local Map...</p>
+    </div>
+
+    <!-- Header Overlay -->
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[500] bg-white/95 backdrop-blur px-6 py-3 rounded-full shadow-xl border border-gray-200 flex items-center gap-4 w-[90%] max-w-2xl">
+        <h1 class="font-bold text-gray-800 tracking-tight flex items-center gap-2 whitespace-nowrap">
+            <span class="text-indigo-600">🐾</span> Bumbum's Map
+        </h1>
+        <div class="h-4 w-px bg-gray-300"></div>
+        
+        <div class="relative flex-grow">
+            <div class="flex items-center bg-gray-100 rounded-full px-4 py-1.5 border border-transparent focus-within:border-indigo-300 focus-within:bg-white transition-all">
+                <svg class="w-4 h-4 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <input type="text" id="map-search" placeholder="Search for a location..." class="bg-transparent border-none focus:ring-0 text-sm w-full text-gray-700 outline-none">
+            </div>
+            <div id="search-results" class="hidden"></div>
+        </div>
+
+        <div class="flex gap-2">
+            <button onclick="exportData()" title="Export JSON" class="p-2 hover:bg-gray-100 rounded-full transition text-indigo-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            </button>
+            <label class="p-2 hover:bg-gray-100 rounded-full transition text-indigo-600 cursor-pointer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <input type="file" id="import-input" class="hidden" accept=".json" onchange="importData(event)">
+            </label>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="absolute top-24 left-4 z-[500] w-80 max-h-[80vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col hidden md:flex border border-gray-100">
+        <div class="flex border-b border-gray-100">
+            <button id="tab-active" onclick="switchTab('active')" class="flex-1 py-3 text-sm font-bold sidebar-tab-active transition">Active Trip</button>
+            <button id="tab-saved" onclick="switchTab('saved')" class="flex-1 py-3 text-sm font-bold text-gray-400 hover:text-gray-600 transition">Saved Plans</button>
+        </div>
+
+        <!-- Active View -->
+        <div id="active-trip-view" class="flex flex-col overflow-hidden h-full">
+            <div class="p-3 bg-gray-50 border-b border-gray-100">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Itinerary Days</span>
+                    <div class="flex gap-2">
+                        <button onclick="removeActiveDay()" id="remove-day-btn" class="text-[10px] font-bold text-red-500 hover:text-red-700 transition">REMOVE DAY</button>
+                        <button onclick="addNewDay()" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 transition">+ ADD DAY</button>
+                    </div>
+                </div>
+                <div id="day-selector" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
+            </div>
+
+            <div id="location-list" class="overflow-y-auto p-3 space-y-3 flex-grow bg-white">
+                <div class="p-8 text-center text-gray-400 text-sm italic">Click the map to drop a pin.</div>
+            </div>
+
+            <div class="p-4 border-t border-gray-100 bg-gray-50 flex gap-2">
+                <button onclick="saveCurrentTrip()" class="flex-grow py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition">Save to Library</button>
+                <button onclick="clearCurrent()" class="px-4 py-3 bg-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-300 transition">Clear</button>
+            </div>
+        </div>
+
+        <!-- Saved View -->
+        <div id="saved-trips-view" class="hidden overflow-y-auto p-3 space-y-3 bg-gray-50/50 flex-grow"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Modal -->
+    <div id="modal-overlay">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl w-96 max-w-[95%] border border-gray-100 overflow-y-auto max-h-[90vh]">
+            <div class="mb-6 text-center">
+                <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">🌍</div>
+                <h3 id="modal-title" class="text-xl font-bold text-gray-800">Add New Place</h3>
+                <p id="modal-subtitle" class="text-sm text-gray-500">Document your journey</p>
+            </div>
+            
+            <div class="space-y-4">
+                <div id="name-container">
+                    <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider ml-1">Place Name</label>
+                    <input type="text" id="place-input" placeholder="e.g. Kyoto, Japan" class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 transition-all">
+                </div>
+
+                <div id="category-container">
+                    <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider ml-1">Category</label>
+                    <div class="grid grid-cols-3 gap-2 mt-1">
+                        <button onclick="setCategory('sight')" class="cat-btn bg-gray-50 p-2 rounded-lg text-xs font-medium border border-transparent" data-cat="sight">🏛 Sight</button>
+                        <button onclick="setCategory('food')" class="cat-btn bg-gray-50 p-2 rounded-lg text-xs font-medium border border-transparent" data-cat="food">🍴 Food</button>
+                        <button onclick="setCategory('hotel')" class="cat-btn bg-gray-50 p-2 rounded-lg text-xs font-medium border border-transparent" data-cat="hotel">🏨 Hotel</button>
+                        <button onclick="setCategory('park')" class="cat-btn bg-gray-50 p-2 rounded-lg text-xs font-medium border border-transparent" data-cat="park">🌲 Park</button>
+                        <button onclick="setCategory('shop')" class="cat-btn bg-gray-50 p-2 rounded-lg text-xs font-medium border border-transparent" data-cat="shop">🛍 Shop</button>
+                        <button onclick="setCategory('other')" class="cat-btn bg-indigo-100 border-indigo-500 p-2 rounded-lg text-xs font-medium border" data-cat="other">📍 Other</button>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold text-gray-400 uppercase tracking-wider ml-1">Photo URL (Optional)</label>
+                    <input type="text" id="photo-input" placeholder="Paste image link..." class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 transition-all">
+                </div>
+
+                <div id="suggested-toggle-container" class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <input type="checkbox" id="suggested-checkbox" class="w-5 h-5 text-indigo-600 rounded">
+                    <div>
+                        <label for="suggested-checkbox" class="text-sm font-bold text-gray-700 block">Mark as Suggested</label>
+                        <p class="text-[10px] text-gray-400">Not linked in the primary route.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-8">
+                <button onclick="closeModal()" class="flex-1 px-4 py-3 text-gray-500 font-medium hover:bg-gray-100 rounded-xl transition">Cancel</button>
+                <button id="modal-submit" onclick="confirmPlace()" class="flex-1 px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg transition">Save Pin</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // State Management
+        let map;
+        let pendingLatLng = null;
+        let editingLocationId = null;
+        let activeCategory = 'other';
+        let searchTimeout = null;
+        let isSearching = false;
+
+        const CATEGORIES = {
+            sight: { icon: '🏛', color: '#6366f1' },
+            food: { icon: '🍴', color: '#f59e0b' },
+            hotel: { icon: '🏨', color: '#ec4899' },
+            park: { icon: '🌲', color: '#10b981' },
+            shop: { icon: '🛍', color: '#8b5cf6' },
+            other: { icon: '📍', color: '#64748b' }
+        };
+
+        // Data Structure
+        let state = {
+            tripDays: [{ id: 'day1', name: 'Day 1', locations: [], suggested: [] }],
+            activeDayIndex: 0,
+            savedTrips: []
+        };
+
+        let markers = {};
+        let routeLine = null;
+
+        // Persistence Logic
+        function saveToLocal() {
+            localStorage.setItem('bumbums_map_data', JSON.stringify(state));
+            updateAllMapElements();
+            renderDaySelector();
+            renderSidebar();
+            renderSavedTrips();
+        }
+
+        async function loadInitialData() {
+            // 1. Try to fetch from a file named 'trips_data.json' in the same folder (for GitHub)
+            try {
+                const response = await fetch('trips_data.json');
+                if (response.ok) {
+                    const githubData = await response.json();
+                    state = githubData;
+                    console.log("Loaded data from GitHub repository file.");
+                } else {
+                    // 2. Fallback to LocalStorage
+                    const localData = localStorage.getItem('bumbums_map_data');
+                    if (localData) {
+                        state = JSON.parse(localData);
+                        console.log("Loaded data from LocalStorage.");
+                    }
+                }
+            } catch (e) {
+                // Fallback to LocalStorage if fetch fails (common locally)
+                const localData = localStorage.getItem('bumbums_map_data');
+                if (localData) state = JSON.parse(localData);
+            }
+            
+            // Finalize UI
+            saveToLocal();
+            document.getElementById('loading-screen').style.opacity = '0';
+            setTimeout(() => document.getElementById('loading-screen').style.display = 'none', 500);
+        }
+
+        // Export/Import
+        window.exportData = () => {
+            const dataStr = JSON.stringify(state, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            const exportFileDefaultName = 'trips_data.json';
+
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        };
+
+        window.importData = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (imported.tripDays && imported.savedTrips) {
+                        state = imported;
+                        saveToLocal();
+                        alert("Data imported successfully!");
+                    } else {
+                        alert("Invalid file format.");
+                    }
+                } catch (err) {
+                    alert("Error reading file.");
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        // Map Logic
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([14.5995, 120.9842], 12);
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CARTO'
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                if (isSearching) return;
+                pendingLatLng = e.latlng;
+                editingLocationId = null;
+                setCategory('other');
+                openModal("Add New Place", `Adding to Day ${state.activeDayIndex + 1}`, "Save Pin");
+            });
+
+            setupSearch();
+            loadInitialData();
+        }
+
+        window.switchTab = (tab) => {
+            const activeView = document.getElementById('active-trip-view');
+            const savedView = document.getElementById('saved-trips-view');
+            const tabActiveBtn = document.getElementById('tab-active');
+            const tabSavedBtn = document.getElementById('tab-saved');
+            if (tab === 'active') {
+                activeView.classList.remove('hidden');
+                savedView.classList.add('hidden');
+                tabActiveBtn.classList.add('sidebar-tab-active');
+                tabSavedBtn.classList.remove('sidebar-tab-active');
+            } else {
+                activeView.classList.add('hidden');
+                savedView.classList.remove('hidden');
+                tabActiveBtn.classList.remove('sidebar-tab-active');
+                tabSavedBtn.classList.add('sidebar-tab-active');
+            }
+        };
+
+        window.addNewDay = () => {
+            state.tripDays.push({ id: 'day' + Date.now(), name: `Day ${state.tripDays.length + 1}`, locations: [], suggested: [] });
+            state.activeDayIndex = state.tripDays.length - 1;
+            saveToLocal();
+        };
+
+        window.removeActiveDay = () => {
+            if (state.tripDays.length <= 1) return;
+            state.tripDays.splice(state.activeDayIndex, 1);
+            state.tripDays.forEach((d, i) => d.name = `Day ${i + 1}`);
+            state.activeDayIndex = Math.max(0, state.activeDayIndex - 1);
+            saveToLocal();
+        };
+
+        window.selectDay = (idx) => {
+            state.activeDayIndex = idx;
+            saveToLocal();
+        };
+
+        window.setCategory = (cat) => {
+            activeCategory = cat;
+            document.querySelectorAll('.cat-btn').forEach(btn => {
+                const isActive = btn.dataset.cat === cat;
+                btn.classList.toggle('bg-indigo-100', isActive);
+                btn.classList.toggle('border-indigo-500', isActive);
+                btn.classList.toggle('border', isActive);
+            });
+        };
+
+        window.confirmPlace = () => {
+            const name = document.getElementById('place-input').value.trim();
+            const photo = document.getElementById('photo-input').value.trim();
+            const isSuggested = document.getElementById('suggested-checkbox').checked;
+
+            if (editingLocationId) {
+                state.tripDays.forEach(day => {
+                    const l = [...day.locations, ...day.suggested].find(x => x.id === editingLocationId);
+                    if (l) l.photo = photo;
+                });
+            } else if (name && pendingLatLng) {
+                const loc = { 
+                    id: Date.now().toString(), 
+                    name, 
+                    photo, 
+                    latlng: pendingLatLng, 
+                    isSuggested, 
+                    category: activeCategory, 
+                    dayId: state.tripDays[state.activeDayIndex].id 
+                };
+                if (isSuggested) state.tripDays[state.activeDayIndex].suggested.push(loc);
+                else state.tripDays[state.activeDayIndex].locations.push(loc);
+            }
+            saveToLocal();
+            closeModal();
+        };
+
+        window.deleteLocation = (e, id) => {
+            if (e) e.stopPropagation();
+            state.tripDays.forEach(day => {
+                day.locations = day.locations.filter(l => l.id !== id);
+                day.suggested = day.suggested.filter(l => l.id !== id);
+            });
+            saveToLocal();
+        };
+
+        window.clearCurrent = () => {
+            if (confirm("Reset current active trip?")) {
+                state.tripDays = [{ id: 'day1', name: 'Day 1', locations: [], suggested: [] }];
+                state.activeDayIndex = 0;
+                saveToLocal();
+            }
+        };
+
+        window.saveCurrentTrip = () => {
+            const total = state.tripDays.reduce((s, d) => s + d.locations.length + d.suggested.length, 0);
+            if (total === 0) return;
+            const tripName = prompt("Itinerary Name:", "Adventure " + new Date().toLocaleDateString());
+            if (!tripName) return;
+
+            state.savedTrips.push({
+                id: Date.now().toString(),
+                name: tripName,
+                days: JSON.parse(JSON.stringify(state.tripDays)),
+                timestamp: new Date().toLocaleDateString()
+            });
+            saveToLocal();
+            switchTab('saved');
+        };
+
+        window.loadTrip = (id) => {
+            const trip = state.savedTrips.find(t => t.id === id);
+            if (trip) {
+                state.tripDays = JSON.parse(JSON.stringify(trip.days));
+                state.activeDayIndex = 0;
+                saveToLocal();
+                switchTab('active');
+            }
+        };
+
+        window.deleteTrip = (id) => {
+            if (confirm("Delete this plan?")) {
+                state.savedTrips = state.savedTrips.filter(t => t.id !== id);
+                saveToLocal();
+            }
+        };
+
+        window.editLocation = (id) => {
+            editingLocationId = id;
+            openModal("Update Memory", "Add a photo to your pin", "Update Pin");
+        };
+
+        window.closeModal = () => {
+            document.getElementById('modal-overlay').style.display = 'none';
+            pendingLatLng = null;
+            editingLocationId = null;
+        };
+
+        function openModal(title, subtitle, btnText) {
+            document.getElementById('modal-overlay').style.display = 'flex';
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-subtitle').innerText = subtitle;
+            document.getElementById('modal-submit').innerText = btnText;
+            
+            const nameInput = document.getElementById('place-input');
+            const photoInput = document.getElementById('photo-input');
+            const suggestCheck = document.getElementById('suggested-checkbox');
+            
+            if (editingLocationId) {
+                document.getElementById('name-container').style.display = 'none';
+                document.getElementById('category-container').style.display = 'none';
+                document.getElementById('suggested-toggle-container').style.display = 'none';
+                let locFound = null;
+                state.tripDays.forEach(d => {
+                    const x = [...d.locations, ...d.suggested].find(l => l.id === editingLocationId);
+                    if (x) locFound = x;
+                });
+                photoInput.value = locFound?.photo || "";
+            } else {
+                document.getElementById('name-container').style.display = 'block';
+                document.getElementById('category-container').style.display = 'block';
+                document.getElementById('suggested-toggle-container').style.display = 'flex';
+                nameInput.value = "";
+                photoInput.value = "";
+                suggestCheck.checked = false;
+                nameInput.focus();
+            }
+        }
+
+        function updateAllMapElements() {
+            Object.values(markers).forEach(m => map.removeLayer(m));
+            markers = {};
+            if (routeLine) map.removeLayer(routeLine);
+
+            const cur = state.tripDays[state.activeDayIndex];
+            if (!cur) return;
+            [...cur.locations, ...cur.suggested].forEach((l) => {
+                const label = l.isSuggested ? null : cur.locations.findIndex(x => x.id === l.id) + 1;
+                addMarkerToMap(l, label);
+            });
+            updateRoute();
+        }
+
+        function addMarkerToMap(data, index) {
+            const cat = CATEGORIES[data.category || 'other'];
+            const inner = data.photo 
+                ? `<img src="${data.photo}" onerror="this.parentElement.innerHTML='<span class=\'text-lg\'>${cat.icon}</span>'">`
+                : `<span class="text-xl">${cat.icon}</span>`;
+            const bgColor = data.photo ? '#fff' : (data.isSuggested ? '#10b981' : cat.color);
+            
+            const iconHtml = `
+                <div class="marker-container">
+                    ${index ? `<div class="marker-number">${index}</div>` : ''}
+                    <div class="marker-pin ${data.isSuggested ? 'marker-suggested' : ''}" style="background-color: ${bgColor}">
+                        ${inner}
+                    </div>
+                </div>
+            `;
+
+            const m = L.marker(data.latlng, {
+                icon: L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [50, 50], iconAnchor: [25, 25], popupAnchor: [0, -25] })
+            }).addTo(map);
+
+            const popupContent = `
+                <div class="flex flex-col">
+                    ${data.photo ? `<img src="${data.photo}" class="w-full h-32 object-cover">` : `<div class="w-full h-20 flex items-center justify-center text-white text-3xl" style="background-color:${cat.color}">${cat.icon}</div>`}
+                    <div class="p-3">
+                        <strong class="text-gray-800 block text-sm">${data.name}</strong>
+                        <div class="flex gap-2 mt-2">
+                            <button onclick="editLocation('${data.id}')" class="text-[9px] bg-gray-100 px-2 py-1 rounded font-bold">PHOTO</button>
+                            <button onclick="deleteLocation(null, '${data.id}')" class="text-[9px] bg-red-50 text-red-500 px-2 py-1 rounded font-bold">DEL</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            m.bindPopup(popupContent, { className: 'custom-popup' });
+            markers[data.id] = m;
+        }
+
+        function updateRoute() {
+            if (routeLine) map.removeLayer(routeLine);
+            const locs = state.tripDays[state.activeDayIndex]?.locations || [];
+            if (locs.length < 2) return;
+            routeLine = L.polyline(locs.map(l => l.latlng), { color: '#6366f1', weight: 4, opacity: 0.5, dashArray: '10, 10' }).addTo(map);
+        }
+
+        function renderDaySelector() {
+            const container = document.getElementById('day-selector');
+            container.innerHTML = '';
+            state.tripDays.forEach((d, i) => {
+                const btn = document.createElement('button');
+                btn.className = `flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${i === state.activeDayIndex ? 'day-tab-active shadow-md' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`;
+                btn.innerText = d.name;
+                btn.onclick = () => window.selectDay(i);
+                container.appendChild(btn);
+            });
+            document.getElementById('remove-day-btn').style.display = state.tripDays.length > 1 ? 'block' : 'none';
+        }
+
+        function renderSidebar() {
+            const list = document.getElementById('location-list');
+            list.innerHTML = '';
+            const day = state.tripDays[state.activeDayIndex];
+            if (!day || (day.locations.length === 0 && day.suggested.length === 0)) {
+                list.innerHTML = `<div class="p-8 text-center text-gray-400 text-sm italic">Day ${state.activeDayIndex + 1} is empty.</div>`;
+                return;
+            }
+            day.locations.forEach((l, i) => list.appendChild(createSidebarItem(l, i + 1)));
+            if (day.suggested.length > 0) {
+                const div = document.createElement('div');
+                div.className = "text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-4 pb-1 pl-2";
+                div.innerText = "Suggested";
+                list.appendChild(div);
+                day.suggested.forEach(l => list.appendChild(createSidebarItem(l, "★")));
+            }
+        }
+
+        function createSidebarItem(l, label) {
+            const item = document.createElement('div');
+            item.className = "group p-3 bg-white rounded-xl border border-gray-100 flex items-center gap-3 hover:shadow-md transition cursor-pointer relative";
+            const cat = CATEGORIES[l.category || 'other'];
+            item.innerHTML = `
+                <div class="flex-shrink-0 w-6 font-bold text-xs text-center ${l.isSuggested ? 'text-emerald-500' : 'text-indigo-600'}">${label}</div>
+                <div class="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden bg-gray-50 flex items-center justify-center">
+                    ${l.photo ? `<img src="${l.photo}" class="w-full h-full object-cover">` : `<span class="text-xs">${cat.icon}</span>`}
+                </div>
+                <div class="flex-grow truncate"><p class="font-bold text-gray-700 text-sm truncate">${l.name}</p></div>
+                <button onclick="deleteLocation(event, '${l.id}')" class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 p-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            `;
+            item.onclick = (e) => { if (!e.target.closest('button')) { map.flyTo(l.latlng, 15); if(markers[l.id]) markers[l.id].openPopup(); } };
+            return item;
+        }
+
+        function renderSavedTrips() {
+            const container = document.getElementById('saved-trips-view');
+            container.innerHTML = '';
+            if (state.savedTrips.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-gray-400 text-sm italic">No saved plans yet.</div>';
+                return;
+            }
+            state.savedTrips.forEach(t => {
+                const el = document.createElement('div');
+                el.className = "p-4 bg-white rounded-2xl border border-gray-100 shadow-sm";
+                el.innerHTML = `
+                    <div class="flex justify-between items-start mb-2"><h4 class="font-bold text-gray-800 text-sm">${t.name}</h4><span class="text-[9px] bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full font-bold">${t.days.length} DAYS</span></div>
+                    <div class="flex gap-2">
+                        <button onclick="loadTrip('${t.id}')" class="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold">LOAD</button>
+                        <button onclick="deleteTrip('${t.id}')" class="px-3 py-2 bg-red-50 text-red-400 rounded-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        async function performSearch(query) {
+            const resDiv = document.getElementById('search-results');
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+                const data = await response.json();
+                resDiv.innerHTML = '';
+                if (data.length > 0) {
+                    resDiv.classList.remove('hidden');
+                    data.forEach(p => {
+                        const item = document.createElement('div');
+                        item.className = "px-4 py-3 hover:bg-indigo-50 cursor-pointer text-xs border-b border-gray-50 last:border-0";
+                        item.innerText = p.display_name;
+                        item.onmousedown = (e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            isSearching = true;
+                            map.flyTo([p.lat, p.lon], 15);
+                            resDiv.classList.add('hidden');
+                            document.getElementById('map-search').value = "";
+                            setTimeout(() => isSearching = false, 300);
+                        };
+                        resDiv.appendChild(item);
+                    });
+                } else resDiv.classList.add('hidden');
+            } catch (e) { console.error(e); }
+        }
+
+        function setupSearch() {
+            const input = document.getElementById('map-search');
+            input.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                if (e.target.value.length < 3) return document.getElementById('search-results').classList.add('hidden');
+                searchTimeout = setTimeout(() => performSearch(e.target.value), 500);
+            });
+            document.addEventListener('click', (e) => { if (!e.target.closest('#search-results')) document.getElementById('search-results').classList.add('hidden'); });
+        }
+
+        document.getElementById('place-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') window.confirmPlace(); });
+        
+        window.onload = initMap;
+    </script>
+</body>
+</html>
